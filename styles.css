@@ -1,0 +1,11 @@
+.nav-file-title.unread-dot-mark .nav-file-title-content::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background-color: var(--unread-dot-color, #3b82f6);
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
