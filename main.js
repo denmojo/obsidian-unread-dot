@@ -187,17 +187,15 @@ class UnreadDotPlugin extends obsidian.Plugin {
     this.ignoredPathList = this.settings.ignoredPathPrefixes
       .split(/\r?\n/)
       .map((s) => s.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .map((s) => obsidian.normalizePath(s));
   }
 
   isIgnored(path, extension) {
     const ext = (extension || '').toLowerCase();
     if (ext && this.ignoredExtSet.has(ext)) return true;
     for (const prefix of this.ignoredPathList) {
-      if (path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : prefix + '/')) {
-        return true;
-      }
-      if (path.startsWith(prefix)) return true;
+      if (path === prefix || path.startsWith(prefix + '/')) return true;
     }
     return false;
   }
@@ -234,7 +232,6 @@ class UnreadDotSettingTab extends obsidian.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl('h2', { text: 'Unread Dot' });
 
     new obsidian.Setting(containerEl)
       .setName('Ignored extensions')
