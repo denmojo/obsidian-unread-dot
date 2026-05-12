@@ -1,9 +1,9 @@
 {
   "id": "unread-dot",
   "name": "Unread Dot",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "minAppVersion": "1.4.0",
-  "description": "Marks unopened notes with a blue dot in the file explorer. Auto-clears the moment the note is opened.",
+  "description": "Marks unopened notes with a blue dot and externally modified notes with an orange dot in the file explorer. Auto-clears the moment the note is opened.",
   "author": "Dennis Mojado",
   "authorUrl": "https://github.com/denmojo",
   "isDesktopOnly": false

@@ -2,7 +2,8 @@
 
 const obsidian = require('obsidian');
 
-const MARK_CLASS = 'unread-dot-mark';
+const UNREAD_CLASS = 'unread-dot-mark';
+const MODIFIED_CLASS = 'unread-dot-modified';
 
 const DEFAULT_SETTINGS = {
   ignoredExtensions: '',
@@ -13,6 +14,7 @@ class UnreadDotPlugin extends obsidian.Plugin {
   async onload() {
     const data = (await this.loadData()) || {};
     this.unread = new Set(Array.isArray(data.unread) ? data.unread : []);
+    this.modified = new Set(Array.isArray(data.modified) ? data.modified : []);
     this.initialized = data.initialized === true;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings || {});
     this.layoutReady = false;
@@ -27,21 +29,42 @@ class UnreadDotPlugin extends obsidian.Plugin {
       this.scheduleRefresh();
     }));
 
+    this.registerEvent(this.app.vault.on('modify', (file) => {
+      if (!this.layoutReady) return;
+      if (!(file instanceof obsidian.TFile)) return;
+      if (this.isIgnored(file.path, file.extension)) return;
+      if (this.unread.has(file.path)) return;
+      if (this.isFileOpen(file.path)) return;
+      if (this.modified.has(file.path)) return;
+      this.modified.add(file.path);
+      this.persist();
+      this.scheduleRefresh();
+    }));
+
     this.registerEvent(this.app.workspace.on('file-open', (file) => {
       if (!file) return;
-      if (this.unread.has(file.path)) {
-        this.unread.delete(file.path);
+      let changed = false;
+      if (this.unread.has(file.path)) { this.unread.delete(file.path); changed = true; }
+      if (this.modified.has(file.path)) { this.modified.delete(file.path); changed = true; }
+      if (changed) {
         this.persist();
         this.scheduleRefresh();
       }
     }));
 
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+      let changed = false;
       if (this.unread.has(oldPath)) {
         this.unread.delete(oldPath);
-        if (!this.isIgnored(file.path, file.extension)) {
-          this.unread.add(file.path);
-        }
+        if (!this.isIgnored(file.path, file.extension)) this.unread.add(file.path);
+        changed = true;
+      }
+      if (this.modified.has(oldPath)) {
+        this.modified.delete(oldPath);
+        if (!this.isIgnored(file.path, file.extension)) this.modified.add(file.path);
+        changed = true;
+      }
+      if (changed) {
         this.persist();
         this.scheduleRefresh();
       }
@@ -50,14 +73,18 @@ class UnreadDotPlugin extends obsidian.Plugin {
     this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
       if (!(file instanceof obsidian.TFile)) return;
       if (this.isIgnored(file.path, file.extension)) return;
-      const isUnread = this.unread.has(file.path);
+      const isMarked = this.unread.has(file.path) || this.modified.has(file.path);
       menu.addItem((item) => {
         item
-          .setTitle(isUnread ? 'Mark as read' : 'Mark as unread')
-          .setIcon(isUnread ? 'check-circle' : 'circle')
+          .setTitle(isMarked ? 'Mark as read' : 'Mark as unread')
+          .setIcon(isMarked ? 'check-circle' : 'circle')
           .onClick(async () => {
-            if (isUnread) this.unread.delete(file.path);
-            else this.unread.add(file.path);
+            if (isMarked) {
+              this.unread.delete(file.path);
+              this.modified.delete(file.path);
+            } else {
+              this.unread.add(file.path);
+            }
             await this.persist();
             this.scheduleRefresh();
           });
@@ -65,10 +92,10 @@ class UnreadDotPlugin extends obsidian.Plugin {
     }));
 
     this.registerEvent(this.app.vault.on('delete', (file) => {
-      if (this.unread.has(file.path)) {
-        this.unread.delete(file.path);
-        this.persist();
-      }
+      let changed = false;
+      if (this.unread.has(file.path)) { this.unread.delete(file.path); changed = true; }
+      if (this.modified.has(file.path)) { this.modified.delete(file.path); changed = true; }
+      if (changed) this.persist();
     }));
 
     this.app.workspace.onLayoutReady(() => {
@@ -86,9 +113,10 @@ class UnreadDotPlugin extends obsidian.Plugin {
       name: 'Mark all notes as read',
       callback: async () => {
         this.unread.clear();
+        this.modified.clear();
         await this.persist();
         this.scheduleRefresh();
-        new obsidian.Notice('Unread Dot: cleared all unread marks');
+        new obsidian.Notice('Unread Dot: cleared all unread and modified marks');
       },
     });
 
@@ -101,6 +129,7 @@ class UnreadDotPlugin extends obsidian.Plugin {
         if (this.isIgnored(file.path, file.extension)) return false;
         if (checking) return true;
         this.unread.add(file.path);
+        this.modified.delete(file.path);
         this.persist();
         this.scheduleRefresh();
       },
@@ -120,9 +149,17 @@ class UnreadDotPlugin extends obsidian.Plugin {
       }
       this.clickBindings = null;
     }
-    document.querySelectorAll('.' + MARK_CLASS).forEach((el) => {
-      el.classList.remove(MARK_CLASS);
+    document.querySelectorAll('.' + UNREAD_CLASS).forEach((el) => el.classList.remove(UNREAD_CLASS));
+    document.querySelectorAll('.' + MODIFIED_CLASS).forEach((el) => el.classList.remove(MODIFIED_CLASS));
+  }
+
+  isFileOpen(path) {
+    let found = false;
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const v = leaf.view;
+      if (v && v.file && v.file.path === path) found = true;
     });
+    return found;
   }
 
   attachObservers() {
@@ -140,8 +177,11 @@ class UnreadDotPlugin extends obsidian.Plugin {
         const titleEl = e.target.closest('.nav-file-title');
         if (!titleEl || !container.contains(titleEl)) return;
         const path = titleEl.getAttribute('data-path');
-        if (path && this.unread.has(path)) {
-          this.unread.delete(path);
+        if (!path) return;
+        let changed = false;
+        if (this.unread.has(path)) { this.unread.delete(path); changed = true; }
+        if (this.modified.has(path)) { this.modified.delete(path); changed = true; }
+        if (changed) {
           this.persist();
           this.scheduleRefresh();
         }
@@ -169,10 +209,12 @@ class UnreadDotPlugin extends obsidian.Plugin {
         const item = view.fileItems[path];
         const el = item.selfEl || item.titleEl;
         if (!el) continue;
-        const shouldMark = this.unread.has(path);
-        const hasMark = el.classList.contains(MARK_CLASS);
-        if (shouldMark && !hasMark) el.classList.add(MARK_CLASS);
-        else if (!shouldMark && hasMark) el.classList.remove(MARK_CLASS);
+        const wantUnread = this.unread.has(path);
+        const wantModified = !wantUnread && this.modified.has(path);
+        const hasUnread = el.classList.contains(UNREAD_CLASS);
+        const hasModified = el.classList.contains(MODIFIED_CLASS);
+        if (wantUnread !== hasUnread) el.classList.toggle(UNREAD_CLASS, wantUnread);
+        if (wantModified !== hasModified) el.classList.toggle(MODIFIED_CLASS, wantModified);
       }
     }
   }
@@ -202,12 +244,14 @@ class UnreadDotPlugin extends obsidian.Plugin {
 
   pruneIgnoredFromUnread() {
     let changed = false;
-    for (const path of Array.from(this.unread)) {
-      const file = this.app.vault.getAbstractFileByPath(path);
-      const ext = file && file.extension ? file.extension : path.split('.').pop();
-      if (this.isIgnored(path, ext)) {
-        this.unread.delete(path);
-        changed = true;
+    for (const set of [this.unread, this.modified]) {
+      for (const path of Array.from(set)) {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        const ext = file && file.extension ? file.extension : path.split('.').pop();
+        if (this.isIgnored(path, ext)) {
+          set.delete(path);
+          changed = true;
+        }
       }
     }
     if (changed) this.persist();
@@ -217,6 +261,7 @@ class UnreadDotPlugin extends obsidian.Plugin {
   async persist() {
     await this.saveData({
       unread: Array.from(this.unread),
+      modified: Array.from(this.modified),
       initialized: this.initialized,
       settings: this.settings,
     });
@@ -235,7 +280,7 @@ class UnreadDotSettingTab extends obsidian.PluginSettingTab {
 
     new obsidian.Setting(containerEl)
       .setName('Ignored extensions')
-      .setDesc('Comma-separated, no leading dot. Files with these extensions will not be marked unread. Example: png, jpg, pdf, opus')
+      .setDesc('Comma-separated, no leading dot. Files with these extensions will not be marked unread or modified. Example: png, jpg, pdf, opus')
       .addText((text) =>
         text
           .setPlaceholder('png, jpg, pdf')
@@ -265,14 +310,15 @@ class UnreadDotSettingTab extends obsidian.PluginSettingTab {
       });
 
     new obsidian.Setting(containerEl)
-      .setName('Clear all unread marks')
-      .setDesc('Remove every blue dot in the vault.')
+      .setName('Clear all marks')
+      .setDesc('Remove every unread and modified dot in the vault.')
       .addButton((btn) =>
         btn.setButtonText('Mark all read').onClick(async () => {
           this.plugin.unread.clear();
+          this.plugin.modified.clear();
           await this.plugin.persist();
           this.plugin.scheduleRefresh();
-          new obsidian.Notice('Unread Dot: cleared all unread marks');
+          new obsidian.Notice('Unread Dot: cleared all unread and modified marks');
         })
       );
   }

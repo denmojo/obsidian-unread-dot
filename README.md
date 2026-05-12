@@ -1,17 +1,29 @@
 # Unread Dot
 
-A small Obsidian plugin that marks newly created files with a blue dot in the file explorer and clears the dot the moment you open the file. Helps you spot notes you have not yet read without having to maintain any frontmatter or tags.
+A small Obsidian plugin that marks newly created files with a blue dot and externally modified files with an orange dot in the file explorer. Both dots clear the moment you open the file. Helps you spot notes you have not yet read or that changed under you without having to maintain any frontmatter or tags.
 
 ## Features
 
 - New files (any extension) get a blue dot in the file explorer the moment they are created.
-- The dot disappears the first time you click the file in the explorer or open it in a tab.
+- Files modified while not open in any Obsidian leaf get an orange dot. Your own typing in an open file does not trigger the dot.
+- Either dot disappears the first time you click the file in the explorer or open it in a tab.
 - State persists across restarts in `.obsidian/plugins/unread-dot/data.json`.
-- Renaming or moving a file preserves its unread state.
+- Renaming or moving a file preserves its marked state.
 - File-explorer only. Wikilinks, graph view, and the editor are untouched.
 - Optional ignore lists by extension or path prefix (e.g., skip attachments).
 - Right-click any file for "Mark as read" / "Mark as unread".
 - Commands: "Mark all notes as read", "Mark current note as unread".
+
+## Colors
+
+Defaults are blue (`#3b82f6`) for unread and orange (`#f59e0b`) for modified. Override either by setting CSS variables in your theme or snippets:
+
+```css
+.theme-dark, .theme-light {
+  --unread-dot-color: #3b82f6;
+  --unread-dot-modified-color: #f59e0b;
+}
+```
 
 ## First-run behavior
 
